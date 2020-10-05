@@ -1,12 +1,14 @@
 package com.wine.to.up.simple.parser.service.domain.entity;
 
-import lombok.*;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 
 import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.Table;
-import java.io.FileWriter;
 import java.util.UUID;
 
 @Entity
@@ -17,21 +19,13 @@ import java.util.UUID;
 @ToString
 public class Brands {
     @Id
-    @Column(name = "brandid")
+    @Column(name = "brandId")
     private UUID brandID = UUID.randomUUID();
 
-    @Column(name = "brandname")
+    @Column(name = "brandName")
     private String brandName;
 
     public Brands(String grapeName) {
         this.brandName = grapeName;
     }
-
-    @SneakyThrows
-    public void writeInfoToFile(Brands someBrand){
-        FileWriter writer = new FileWriter("Brands.txt", false);
-        writer.write(someBrand.toString() + "\n");
-        writer.flush();
-    }
-
 }
