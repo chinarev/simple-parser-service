@@ -2,7 +2,16 @@ package com.wine.to.up.simple.parser.service.SimpleParser;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
+import com.google.protobuf.ByteString;
+import com.wine.to.up.commonlib.messaging.KafkaMessageSender;
+import com.wine.to.up.demo.service.api.dto.DemoServiceMessage;
+import com.wine.to.up.demo.service.api.message.KafkaMessageHeaderOuterClass;
+import com.wine.to.up.demo.service.api.message.KafkaMessageSentEventOuterClass;
+import com.wine.to.up.parser.common.api.schema.UpdateProducts;
+import com.wine.to.up.simple.parser.service.controller.KafkaController;
 import com.wine.to.up.simple.parser.service.domain.entity.*;
 import com.wine.to.up.simple.parser.service.repository.*;
 import lombok.SneakyThrows;
@@ -15,6 +24,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
+
+import static java.util.stream.Collectors.toList;
 
 @Slf4j
 @Service
@@ -41,6 +52,11 @@ public class Parser {
 
     private SimpleWine newWine;
 
+
+//    @Autowired
+//    KafkaMessageSender<KafkaMessageSentEventOuterClass.KafkaMessageSentEvent> kafkaSendMessageService;
+    @Autowired
+    KafkaMessageSender<String> kafkaSendMessageService;
     @Autowired
     private GrapesRepository grapesRepository;
     @Autowired
@@ -59,6 +75,7 @@ public class Parser {
 
     @SneakyThrows(IOException.class)
     public ArrayList<SimpleWine> startParser() {
+
         doc = Jsoup.connect(URL + "/catalog/vino/").get();
         numberOfPages = Integer
                 .parseInt(doc.getElementsByAttributeValue("class", "pagination__navigation").get(0).child(7).text());
@@ -117,6 +134,7 @@ public class Parser {
             }
         }
         log.info("\tEnd of adding information to the database.");
+
         return wineCatalog;
     }
 
@@ -154,6 +172,18 @@ public class Parser {
                     this.bottleVolume, this.bottleABV, this.colorType, this.sugarType, this.grapeType);
             wineRepository.save(wineEntity);
             log.info("New Wine was added to DB: " + wineEntity.toString());
+
+            String message = "New Wine was added to DB: " + wineEntity.toString();
+//            DemoServiceMessage demoServiceMessage = new DemoServiceMessage(Collections.emptyMap(), message);
+//
+//            KafkaMessageSentEventOuterClass.KafkaMessageSentEvent event = KafkaMessageSentEventOuterClass.KafkaMessageSentEvent.newBuilder()
+//                    .addAllHeaders(demoServiceMessage.getHeaders().entrySet().stream()
+//                            .map(entry -> KafkaMessageHeaderOuterClass.KafkaMessageHeader.newBuilder()
+//                                    .setKey(entry.getKey()).setValue(ByteString.copyFrom(entry.getValue())).build())
+//                            .collect(toList()))
+//                    .setMessage(demoServiceMessage.getMessage()).build();
+            kafkaSendMessageService.sendMessage(message);
+
         } else
             wineEntity = wineRepository.findWineByNameAndPriceAndVolumeAndColorTypeAndSugarType(this.wineName, price, this.bottleVolume, this.colorType, this.sugarType);
 

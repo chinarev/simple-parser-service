@@ -7,6 +7,7 @@ import lombok.ToString;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.UUID;
 
 //@ToString
@@ -34,6 +35,7 @@ public class SimpleWine {
         this.abv = abv;
         this.colorType = colorType;
         this.sugarType = sugarType;
+
     }
 
     @SneakyThrows(IOException.class)

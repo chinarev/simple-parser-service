@@ -22,6 +22,7 @@
 
         <service.commonlib.version>0.2.1-SNAPSHOT</service.commonlib.version>
         <!--        TODO create-service: replace-->
+        <parser.common.api.version>0.2.1-SNAPSHOT</parser.common.api.version>
         <demo.service.api.version>0.3.0-SNAPSHOT</demo.service.api.version>
         
         <org.jsoup.version>1.13.1</org.jsoup.version>
@@ -89,6 +90,11 @@
             <groupId>com.wine.to.up</groupId>
             <artifactId>demo-service-api</artifactId>
             <version>${demo.service.api.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.wine.to.up</groupId>
+            <artifactId>parser-common-api</artifactId>
+            <version>${parser.common.api.version}</version>
         </dependency>
     </dependencies>
 </project>

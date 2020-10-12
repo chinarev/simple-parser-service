@@ -5,6 +5,8 @@ import lombok.experimental.FieldDefaults;
 
 import java.io.FileWriter;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 @Data
 @AllArgsConstructor
@@ -16,7 +18,8 @@ public class ShopCatalog {
     private int price;
     private WineShop newShop;
 
-    public void writeToFile(String filePath, ShopCatalog shopCatalog) {
+
+    public void writeToFile(String filePath) {
         try (FileWriter fileWriter = new FileWriter(filePath, true)) {
             fileWriter.write(this.toString());
 

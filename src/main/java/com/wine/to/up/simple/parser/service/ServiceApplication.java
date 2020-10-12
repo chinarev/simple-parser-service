@@ -17,6 +17,7 @@ import springfox.documentation.swagger2.annotations.EnableSwagger2;
 @EnableSwagger2
 @Slf4j
 @EnableScheduling
+
 public class ServiceApplication  {
 
     private final Parser parser;

@@ -1,3 +1,0 @@
-wineID: 1, wineShopID: 1231, shopID: 103, price: 1700
-wineID: 2, wineShopID: 77, shopID: 23, price: 9600
-wineID: 3, wineShopID: 49, shopID: 32, price: 1400

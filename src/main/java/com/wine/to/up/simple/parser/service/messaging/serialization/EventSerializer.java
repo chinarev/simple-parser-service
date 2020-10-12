@@ -6,12 +6,17 @@ import org.apache.kafka.common.serialization.Serializer;
 /**
  * Serializer for {@link KafkaMessageSentEvent}
  */
-public class EventSerializer implements Serializer<KafkaMessageSentEvent> {
+public class EventSerializer implements Serializer<String> {
     /**
      * {@inheritDoc}
      */
+//    @Override
+//    public byte[] serialize(String topic, KafkaMessageSentEvent data) {
+//        return data.toByteArray();
+//    }
+
     @Override
-    public byte[] serialize(String topic, KafkaMessageSentEvent data) {
-        return data.toByteArray();
+    public byte[] serialize(String topic, String data) {
+        return data.getBytes();
     }
 }
