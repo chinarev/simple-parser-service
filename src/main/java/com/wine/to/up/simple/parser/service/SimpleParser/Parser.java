@@ -2,27 +2,40 @@ package com.wine.to.up.simple.parser.service.SimpleParser;
 
 import java.io.IOException;
 
+import lombok.NoArgsConstructor;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 
+@Component
+@NoArgsConstructor
 public class Parser {
-    private static final String URL = "https://simplewine.ru";
+    private static String URL;
     private static final int PAGES_TO_PARSE = 108; // currently max 132, lower const value for testing purposes
-    private static final String HOME_URL = URL + "/catalog/vino/";
-    private static final String WINE_URL = URL + "/catalog/vino/page";
+    public static String HOME_URL;
+    private static String WINE_URL;
 
-    protected int parseNumberOfPages() throws IOException {
-        Document mainPage = Jsoup.connect(HOME_URL).get();
-        int numberOfPager = Integer.parseInt(
-                mainPage.getElementsByAttributeValue("class", "pagination__navigation").get(0).child(7).text());
-        return numberOfPager;
+    @Value("${parser.url}")
+    public void setURLStatic(String URL_FROM_PROPERTY) {
+        URL = URL_FROM_PROPERTY;
+        HOME_URL = URL + "/catalog/vino/";
+        WINE_URL = URL + "/catalog/vino/page";
     }
 
-    public static SimpleWine parseWine(String wineURL) throws IOException {
-        Document wineDoc = Jsoup.connect(wineURL).get();
+    public static Document URLToDocument(String someURL) throws IOException {
+        return Jsoup.connect(someURL).get();
+    }
 
+    protected int parseNumberOfPages(Document mainPage) {
+        return Integer.parseInt(
+                //mainPage.getElementsByAttributeValue("class", "pagination__navigation").get(0).child(7).text()); //works only for catalogs with more than 7 pages
+                mainPage.getElementsByAttributeValue("class", "pagination__navigation").get(0).children().last().previousElementSibling().text()); //works for catalogs with 7 or less pages
+    }
+
+    public static SimpleWine parseWine(Document wineDoc) {
         String wineName = "";
         String brandID = "";
         String countryID = "";

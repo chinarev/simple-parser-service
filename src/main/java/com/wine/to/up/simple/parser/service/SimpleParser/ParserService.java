@@ -4,10 +4,12 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -21,18 +23,25 @@ import org.jsoup.select.Elements;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Slf4j
 @Service
-// @PropertySource(value = "application.properties")
+
 public class ParserService {
 
-    // @Value("${parser.url}")
-    private static final String URL = "https://simplewine.ru";
+    private static String URL;
     private static final int PAGES_TO_PARSE = 3; // currently max 132, lower const value for testing purposes
-    private static final String HOME_URL = URL + "/catalog/vino/";
-    private static final String WINE_URL = URL + "/catalog/vino/page";
+    private static String HOME_URL;
+    private static String WINE_URL;
+
+    @Value("${parser.url}")
+    public void setURLStatic(String URL_FROM_PROPERTY) {
+        URL = URL_FROM_PROPERTY;
+        HOME_URL = URL + "/catalog/vino/";
+        WINE_URL = URL + "/catalog/vino/page";
+    }
 
     @Autowired
     KafkaMessageSender<UpdateProducts.UpdateProductsMessage> kafkaSendMessageService;
@@ -48,7 +57,7 @@ public class ParserService {
     private WineRepository wineRepository;
 
     public void startParser() {
-        ArrayList<String> wineURLs = new ArrayList<>();
+        ArrayBlockingQueue<String> wineURLs = new ArrayBlockingQueue<>(100_000);
         DbHandler dbHandler = new DbHandler(grapesRepository, brandsRepository, countriesRepository,
                 wineGrapesRepository, wineRepository);
         CommonDbHandler commonDbHandler = new CommonDbHandler();
@@ -72,7 +81,7 @@ public class ParserService {
             return "URL`s task execution";
         };
 
-        List<Callable<String>> callableTasks = Collections.nCopies(20, callableTask);
+        List<Callable<String>> callableTasks = Collections.nCopies(1, callableTask);
 
         try {
             List<Future<String>> future = executorService.invokeAll(callableTasks);
@@ -85,17 +94,19 @@ public class ParserService {
         AtomicInteger wineCounter = new AtomicInteger(0);
         ExecutorService wineParserService = Executors.newFixedThreadPool(30);
         Callable<String> wineTask = () -> {
-            while (wineCounter.longValue() < wineURLs.size()) {
-                SimpleWine wine = Parser.parseWine(URL + wineURLs.get(wineCounter.getAndIncrement()));
+            while (true) {
+                String wineURL = wineURLs.poll(10, TimeUnit.SECONDS);
+                if (wineURL == null) {
+                    return "Wine task execution";
+                }
+                SimpleWine wine = Parser.parseWine(Parser.URLToDocument(URL + wineURL));
                 dbHandler.putInfoToDB(wine);
                 UpdateProducts.Product newProduct = commonDbHandler.putInfoToCommonDb(wine);
                 if (!products.contains(newProduct))
                     products.add(newProduct);
             }
-
-            return "Wine task execution";
         };
-        List<Callable<String>> wineTasks = Collections.nCopies(30, wineTask);
+        List<Callable<String>> wineTasks = Collections.nCopies(3, wineTask);
 
         try {
             List<Future<String>> future = wineParserService.invokeAll(wineTasks);
@@ -105,7 +116,6 @@ public class ParserService {
         }
         wineParserService.shutdown();
         log.info("\tEnd of adding information to the database.");
-
 
         message = UpdateProducts.UpdateProductsMessage.newBuilder().setShopLink(URL).addAllProducts(products).build();
         kafkaSendMessageService.sendMessage(message);

@@ -3,7 +3,7 @@
     {
       "name": "parser.url",
       "type": "java.lang.String",
-      "description": "Description for parser.url."
+      "description": "SimpleWine base URL."
     }
   ]
 }
