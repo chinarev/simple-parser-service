@@ -11,6 +11,7 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.stereotype.Component;
 
+import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.Map;
@@ -19,6 +20,7 @@ import static com.wine.to.up.parser.common.api.schema.ParserApi.Wine.Color.*;
 import static com.wine.to.up.parser.common.api.schema.ParserApi.Wine.Color.ORANGE;
 import static com.wine.to.up.parser.common.api.schema.ParserApi.Wine.Sugar.*;
 import static com.wine.to.up.parser.common.api.schema.ParserApi.Wine.Sugar.SWEET;
+import static com.wine.to.up.simple.parser.service.logging.SimpleParserNotableEvents.*;
 
 /**
  * Parses wine and counts number of pages with wines
@@ -28,7 +30,6 @@ import static com.wine.to.up.parser.common.api.schema.ParserApi.Wine.Sugar.SWEET
 @Component
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class Parser {
-
     /**
      * Parsing number of pages from catalog URL
      *
@@ -56,17 +57,11 @@ public class Parser {
     public static SimpleWine parseWine(Document wineDoc) {
         long wineParseStart = System.currentTimeMillis();
 
-        Map<String, ParserApi.Wine.Sugar> sugarMap = Map.of("сухое", DRY, "полусухое", MEDIUM_DRY, "полусладкое",
-                MEDIUM, "сладкое", SWEET);
-        Map<String, ParserApi.Wine.Color> colorMap = Map.of("красное", RED, "розовое", ROSE, "белое", WHITE,
-                "оранжевое", ORANGE);
-
-
         float bottlePrice = 0;
         float bottleDiscount = 0;
 
-        var sw = SimpleWine.builder();
-        
+        SimpleWine.SimpleWineBuilder sw = SimpleWine.builder();
+
         String header = wineDoc.select("h1").get(0).text();
         if (header.matches(".{0,}(Игристое|Шипучее|Шампанское).{0,}")) {
             sw.sparkling(true);
@@ -75,12 +70,11 @@ public class Parser {
         if (wineDoc.is(":has(.product__header-russian-name)")) {
             sw.name(wineDoc.getElementsByClass("product__header-russian-name").get(0).text().split(" ")[2]);
         } else if (wineDoc.is(":has(.product-card-new__header-info)")) {
-            // log.debug("HEREEEE");
             sw.name(wineDoc.getElementsByClass("product-card-new__header-info").get(0).text().split(" ")[2]);
         } else {
             log.error("The layout has been changed!");
+            ParserService.eventLogger.warn(W_WINE_DETAILS_PARSING_FAILED, wineDoc.baseUri());
         }
-
 
         sw.rating(Float.parseFloat(wineDoc.getElementsByClass("product-info__raiting-count").get(0).text()));
         if (wineDoc.select("img").hasClass("product-slider__slide-img")) {
@@ -92,8 +86,8 @@ public class Parser {
         Elements discounts = wineDoc.getElementsByClass("product-buy__old-price product-buy__with-one");
         if (!prices.get(0).text().equals("")) {
             if (!discounts.isEmpty()) {
-                bottlePrice = Float.parseFloat(prices.get(0).text().replaceAll(" |₽", "").replaceAll("-[0-9]{1,}%", ""));
-                bottleDiscount = Float.parseFloat(prices.get(0).text().split("-")[1].replaceAll("%", ""));
+                bottlePrice = Float.parseFloat(prices.get(0).text().split("-")[0].replaceAll(" |₽", ""));
+                bottleDiscount = Float.parseFloat(prices.get(0).text().split("-")[1].replace("%", ""));
             } else {
                 bottlePrice = Float.parseFloat(prices.get(0).text().replaceAll(" |₽", ""));
                 bottleDiscount = 0;
@@ -101,74 +95,88 @@ public class Parser {
         } else {
             bottlePrice = 0;
             bottleDiscount = 0;
+            ParserService.eventLogger.warn(W_WINE_ATTRIBUTE_ABSENT, "price", wineDoc.baseUri());
         }
         sw.newPrice(bottlePrice);
         sw.discount(bottleDiscount);
 
+        if (wineDoc.is(":has(.product-info__list-item)")) {
+            Elements productFacts = wineDoc.getElementsByClass("product-info__list-item");
+            parseProductFacts(sw, productFacts);
+        } else {
+            ParserService.eventLogger.warn(W_WINE_DETAILS_PARSING_FAILED, wineDoc.baseUri());
+        }
 
-        Elements productFacts = wineDoc.getElementsByClass("product-info__list-item");
+        Elements productCharateristics = wineDoc.getElementsByClass("characteristics-params__item");
+        parseProductCharateristics(sw, productCharateristics);
+
+        Elements productDescriptions = wineDoc.getElementsByClass("characteristics-description__item");
+        parseProductDescriptions(sw, productDescriptions);
+
+        log.debug("Wine parsing takes : {}", System.currentTimeMillis() - wineParseStart);
+        SimpleParserMetricsCollector.parseWineDetailsParsing(new Date().getTime() - wineParseStart);
+        SimpleWine wineRes = sw.link(wineDoc.baseUri()).discount(bottleDiscount).oldPrice(100 * bottlePrice / (100 - bottleDiscount))
+                .build();
+        checkAbsentFields(wineDoc, wineRes);
+        return wineRes;
+    }
+
+    private static void parseProductFacts(SimpleWine.SimpleWineBuilder sw, Elements productFacts) {
+        Map<String, ParserApi.Wine.Sugar> sugarMap = Map.of("сухое", DRY, "полусухое", MEDIUM_DRY, "полусладкое",
+                MEDIUM, "сладкое", SWEET);
+        Map<String, ParserApi.Wine.Color> colorMap = Map.of("красное", RED, "розовое", ROSE, "белое", WHITE,
+                "оранжевое", ORANGE);
         for (Element productFact : productFacts) {
             if (productFact.childrenSize() > 0) {
-                // String href = productFact.child(0).attr("href");
-                // String fact = href.split("/")[4].split("(-|_)")[0];
                 String fact = productFact.child(0).text();
                 switch (fact) {
                     case "Страна, регион:":
                         sw.country(productFact.child(1).text().split(",")[0]);
                         break;
                     case "Вино:":
-                        // colorType = productFact.text();
                         sw.color(colorMap.getOrDefault(productFact.child(1).text(), RED));
                         break;
                     case "Сахар:":
-                        // sugarType = productFact.text();
                         sw.sugar(sugarMap.getOrDefault(productFact.child(1).text(), DRY));
                         break;
                     case "Виноград:":
-                        // grapeType = productFact.text();
                         sw.grapeSort(Arrays.asList(productFact.child(1).text().split(", ")));
                         break;
                     case "Производитель:":
                         sw.brand(productFact.child(1).text());
                         break;
-                    
                     case "Объем:":
-                        // bottleVolume = Float.parseFloat(productCharateristic.child(1).text());
                         sw.capacity(Float.parseFloat(productFact.child(1).text().replaceAll(" |л", "")));
                         break;
-                    case "aging":
-                        break;
-
                     default:
                         break;
                 }
             }
         }
+    }
 
-        Elements productCharateristics = wineDoc.getElementsByClass("characteristics-params__item");
+    private static void parseProductCharateristics(SimpleWine.SimpleWineBuilder sw, Elements productCharateristics) {
         for (Element productCharateristic : productCharateristics) {
             String charateristicTitle = productCharateristic.child(0).text();
             switch (charateristicTitle) {
                 case "Регион:":
                     sw.region(productCharateristic.child(1).text());
                     break;
-
                 case "Год:":
                     sw.year(Integer.parseInt(productCharateristic.child(1).text()));
                     break;
                 case "Крепость:":
                     sw.strength(Float.parseFloat(productCharateristic.child(1).text().replace("%", "")));
                     break;
-
                 default:
                     break;
             }
         }
+    }
 
-        Elements productDescriptions = wineDoc.getElementsByClass("characteristics-description__item");
+    private static void parseProductDescriptions(SimpleWine.SimpleWineBuilder sw, Elements productDescriptions) {
         for (Element productDescription : productDescriptions) {
             String descriptionItem = productDescription.children().first().text();
-
             switch (descriptionItem) {
                 case "Гастрономия:":
                     sw.gastronomy(productDescription.child(1).text());
@@ -176,16 +184,22 @@ public class Parser {
                 case "Дегустационные характеристики:":
                     sw.taste(productDescription.child(1).text());
                     break;
-
                 default:
                     break;
             }
         }
+    }
 
-        log.debug("Wine parsing takes : {}", System.currentTimeMillis() - wineParseStart);
-        SimpleParserMetricsCollector.parseWineDetailsParsing(new Date().getTime() - wineParseStart);
-
-        return sw.link(wineDoc.baseUri()).discount(bottleDiscount).oldPrice(100 * bottlePrice / (100 - bottleDiscount))
-                .build();
+    private static void checkAbsentFields(Document wineDoc, SimpleWine wineRes) {
+        for (Field f : wineRes.getClass().getDeclaredFields()) {
+            f.setAccessible(true);
+            try {
+                if (!f.getName().equals("brandID") && !f.getName().equals("countryID") && f.get(wineRes) == null) {
+                    ParserService.eventLogger.warn(W_WINE_ATTRIBUTE_ABSENT, f.getName(), wineDoc.baseUri());
+                }
+            } catch (IllegalAccessException e) {
+                log.warn("Field is not accessible");
+            }
+        }
     }
 }

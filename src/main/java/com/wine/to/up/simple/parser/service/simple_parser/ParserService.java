@@ -8,6 +8,8 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.wine.to.up.commonlib.annotations.InjectEventLogger;
+import com.wine.to.up.commonlib.logging.EventLogger;
 import com.wine.to.up.commonlib.messaging.KafkaMessageSender;
 import com.wine.to.up.parser.common.api.schema.ParserApi;
 import com.wine.to.up.simple.parser.service.components.SimpleParserMetricsCollector;
@@ -22,9 +24,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import static com.wine.to.up.simple.parser.service.logging.SimpleParserNotableEvents.*;
+
 @Slf4j
 @Service
 public class ParserService {
+    @InjectEventLogger
+    public static EventLogger eventLogger;
     @Value("${parser.url}")
     private String url;
     @Value("${parser.wineurl}")
@@ -56,16 +62,16 @@ public class ParserService {
         Document wineDoc = null;
         try {
             wineDoc = Jsoup.connect(someURL).get();
-            int rerequestNumber = 0;
-            while (!wineDoc.getElementsByClass("product-page").first().children().first().className().equals("container") && (rerequestNumber < 3)) {
-                log.debug("Doing re-request: {}", rerequestNumber);
-                wineDoc = Jsoup.connect(someURL).get();
-                rerequestNumber++;
+            if (wineDoc.is(":has(.product-page)")) {
+                int rerequestNumber = 0;
+                while ((rerequestNumber < 3) && !wineDoc.getElementsByClass("product-page").first().children().first().className().equals("container")) {
+                    log.debug("Doing re-request: {}", rerequestNumber);
+                    wineDoc = Jsoup.connect(someURL).get();
+                    rerequestNumber++;
+                }
             }
         } catch (IOException e) {
             log.error("Incorrect URL address: " + someURL);
-        } catch (NullPointerException e) {
-            log.error("No such element on page");
         }
         return wineDoc;
     }
@@ -115,10 +121,8 @@ public class ParserService {
                 TimeUnit.MILLISECONDS.toSeconds(System.currentTimeMillis()
                         - TimeUnit.MILLISECONDS.toMinutes(System.currentTimeMillis() - start) * 60000 - start));
         SimpleParserMetricsCollector.parseProcess(System.currentTimeMillis() - start);
-        //SimpleParserMetricsCollector.timeSinceLastSucceededParse(System.currentTimeMillis());
         log.info("End of parsing, {} wines collected and sent to Kafka", products.size());
         SimpleParserMetricsCollector.recordParsingCompleted(true);
-
     }
 
     /**
@@ -168,10 +172,12 @@ public class ParserService {
             if (!products.contains(newProduct)) {
                 products.add(newProduct);
                 SimpleParserMetricsCollector.winesPublishedToKafka();
+                eventLogger.info(I_WINE_DETAILS_PARSED, url + wineURL);
             }
             log.trace("Wine: {} added to database", wineCounter.getAndIncrement());
+        } else {
+            eventLogger.warn(W_WINE_DETAILS_PARSING_FAILED, url + wineURL);
         }
-
     }
 
     /**
@@ -189,6 +195,7 @@ public class ParserService {
             }
         } catch (Exception e) {
             log.error("DB error ", e);
+            eventLogger.warn(W_SOME_WARN_EVENT, e.getMessage() + " caused by: " + e.getCause());
         }
     }
 
@@ -200,6 +207,11 @@ public class ParserService {
      * @param pagesToParse
      */
     private void addWineUrls(AtomicLong pageCounter, AtomicLong sparklingPageCounter, ArrayBlockingQueue<String> wineURLs, int pagesToParse, int sparklingPagesToParse) {
+        parseUrls(pageCounter, pagesToParse, wineURLs);
+        parseUrls(sparklingPageCounter, sparklingPagesToParse, wineURLs);
+    }
+
+    private void parseUrls(AtomicLong pageCounter, int pagesToParse, ArrayBlockingQueue<String> wineURLs) {
         try {
             long winePageCatalogParseStart = System.currentTimeMillis();
             while (pageCounter.longValue() <= pagesToParse) {
@@ -212,29 +224,14 @@ public class ParserService {
                         wineURLs.add(wine.getElementsByClass("product-snippet__name").attr("href"));
                 }
                 log.debug("Parsed {} wines from url {}", wines.size(),
-                        wineUrl + pageCounter.getAndIncrement());
+                        wineUrl + pageCounter.get());
+                eventLogger.info(I_WINES_PAGE_PARSED, wineUrl + pageCounter.getAndIncrement());
                 SimpleParserMetricsCollector.winePageParsingDuration(new Date().getTime() - wineParseStart);
             }
             SimpleParserMetricsCollector.fetchWinePage(new Date().getTime() - winePageCatalogParseStart);
-
-            winePageCatalogParseStart = System.currentTimeMillis();
-            while (sparklingPageCounter.longValue() <= sparklingPagesToParse) {
-                long wineParseStart = System.currentTimeMillis();
-                Document doc = Jsoup.connect(sparklingWineUrl + sparklingPageCounter.get()).get();
-                SimpleParserMetricsCollector.fetchDetailsWine(new Date().getTime() - wineParseStart);
-                Elements wines = doc.getElementsByClass("catalog-grid__item");
-                for (Element wine : wines) {
-                    if (!wineURLs.contains(wine.getElementsByClass("product-snippet__name").attr("href")))
-                        wineURLs.add(wine.getElementsByClass("product-snippet__name").attr("href"));
-                }
-                log.debug("Parsed {} wines from url {}", wines.size(),
-                        wineUrl + sparklingPageCounter.getAndIncrement());
-                SimpleParserMetricsCollector.winePageParsingDuration(new Date().getTime() - wineParseStart);
-            }
-            SimpleParserMetricsCollector.fetchWinePage(new Date().getTime() - winePageCatalogParseStart);
-
         } catch (IOException e) {
             log.error("Error while parsing page: ", e);
+            eventLogger.warn(W_WINE_PAGE_PARSING_FAILED, wineUrl + pageCounter.get());
         }
     }
 
@@ -259,7 +256,7 @@ public class ParserService {
             } else {
                 message = message.addAllWines(products);
             }
-            kafkaSendMessageService.sendMessage(message.setShopLink(url).build());
+            kafkaSendMessageService.sendMessage(message.setShopLink(url).setParserName("simple-parser-service").build());
             messageToKafka = ParserApi.WineParsedEvent.newBuilder().addAllWines(products).build();
         }
     }

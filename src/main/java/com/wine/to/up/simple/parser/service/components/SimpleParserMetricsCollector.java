@@ -2,6 +2,7 @@ package com.wine.to.up.simple.parser.service.components;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import com.wine.to.up.commonlib.metrics.CommonMetricsCollector;
 
@@ -82,6 +83,7 @@ public class SimpleParserMetricsCollector extends CommonMetricsCollector {
             .register();
 
     private static final AtomicInteger micrometerParsingInProgressGauge = Metrics.gauge(PARSING_IN_PROGRESS, new AtomicInteger(0));
+    private static final AtomicLong micrometerTimeSinceLastSucceededParsingGauge = Metrics.gauge(TIME_SINCE_LAST_SUCCEEDED_PARSING, new AtomicLong(0));
 
     private static final Summary parseProcessSummary = Summary.build()
             .name(PARSING_PROCESS_DURATION)
@@ -109,8 +111,8 @@ public class SimpleParserMetricsCollector extends CommonMetricsCollector {
     }
 
     public static void timeSinceLastSucceededParse(long time) {
-        Metrics.gauge(TIME_SINCE_LAST_SUCCEEDED_PARSING, time);
-        lastSucceededParseGauge.inc();
+        micrometerTimeSinceLastSucceededParsingGauge.set(time);
+        lastSucceededParseGauge.set(time);
     }
 
     public static void recordParsingStarted() {
@@ -125,6 +127,7 @@ public class SimpleParserMetricsCollector extends CommonMetricsCollector {
         micrometerParsingInProgressGauge.decrementAndGet();
         parsingInProgress.dec();
         parsingCompletedTotal.labels(status ? "SUCCESS" : "FAILED").inc();
+        timeSinceLastSucceededParse(System.currentTimeMillis());
     }
 
     public static void parseWineDetailsParsing(long time) {
@@ -132,10 +135,10 @@ public class SimpleParserMetricsCollector extends CommonMetricsCollector {
         parseWineDetailsParsingSummary.observe(time);
     }
 
-    public static void winePageParsingDuration(long nanoTime) {
-        long milliTime = TimeUnit.NANOSECONDS.toMillis(nanoTime);
-        winePageParsingDurationSummary.observe(milliTime);
-        Metrics.summary(WINE_PAGE_PARSING_DURATION).record(milliTime);
+    public static void winePageParsingDuration(long time) {
+        Metrics.timer(WINE_PAGE_PARSING_DURATION).record(time, TimeUnit.MILLISECONDS);
+        winePageParsingDurationSummary.observe(time);
+
     }
 
     public static void winesPublishedToKafka() {

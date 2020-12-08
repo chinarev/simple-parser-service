@@ -1,5 +1,7 @@
 package com.wine.to.up.simple.parser.service.simple_parser;
 
+import com.wine.to.up.commonlib.annotations.InjectEventLogger;
+import com.wine.to.up.commonlib.logging.EventLogger;
 import com.wine.to.up.commonlib.messaging.KafkaMessageSender;
 import com.wine.to.up.parser.common.api.schema.ParserApi;
 import com.wine.to.up.simple.parser.service.simple_parser.db_handler.WineService;
@@ -29,6 +31,8 @@ public class ParserServiceTest {
     private KafkaMessageSender<ParserApi.WineParsedEvent> kafkaSendMessageService;
     @Mock
     private WineService wineService;
+    @Mock
+    private EventLogger eventLogger;
     @InjectMocks
     private ParserService parserService;
 
@@ -47,6 +51,7 @@ public class ParserServiceTest {
         ReflectionTestUtils.setField(parserService, "url", "https://simplewine.ru");
         ReflectionTestUtils.setField(parserService, "wineUrl", "https://simplewine.ru/catalog/vino/page");
         ReflectionTestUtils.setField(parserService, "sparklingWineUrl", "https://simplewine.ru/catalog/shampanskoe_i_igristoe_vino/page");
+        ReflectionTestUtils.setField(parserService, "eventLogger", eventLogger);
     }
 
     /**
@@ -65,12 +70,6 @@ public class ParserServiceTest {
     }
 
     @Test
-    public void testURLtoDocumentWrongSite() {
-        Document doc = ParserService.urlToDocument("https://www.google.ru/");
-        assertNull(doc);
-    }
-
-    @Test
     public void testGetMessage() throws NoSuchFieldException, IllegalAccessException {
         Field f = ParserService.class.getDeclaredField("messageToKafka");
         f.setAccessible(true);
@@ -84,7 +83,7 @@ public class ParserServiceTest {
 
     @Test
     public void testStartParserNegative() {
-        Assertions.assertDoesNotThrow(() -> parserService.startParser(-1, 3));
+        Assertions.assertDoesNotThrow(() -> parserService.startParser(-1, -1));
     }
 
     @Test
